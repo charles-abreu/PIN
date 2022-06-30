@@ -2,18 +2,15 @@ import os, sys, json, getopt
 from glob import glob
 from pyhive import hive
 import config
-
-# Diretorio onde estão as instâncias
-CONFIG_DIR = "config/" 
-# Caminho do file_description dentro da pasta da coleta
-FILE_DESCRIPTION_PATH = "data/files/""file_description.jsonl" 
+from kafka import KafkaProducer
 
 # Obtem instancias para os arquivos json na pasta config
 def get_config_files(coleta_dir):
     # dicionario com instâncias
     instances = {}
     # Arquivos presentes no diretorio config
-    instances_files = glob(coleta_dir + os.sep + CONFIG_DIR + os.sep + "*.json")
+    # INSTANCE_DIR: Diretorio onde estão as instâncias
+    instances_files = glob(coleta_dir + os.sep + os.getenv('INSTANCE_DIR') + os.sep + "*.json")
 
     for nome_arquivo in instances_files:
         with open(nome_arquivo) as in_file:
@@ -21,10 +18,11 @@ def get_config_files(coleta_dir):
     
     return instances
 
+
 # Obtem dicionario com informações dos arquivos
 def get_file_description(coleta_dir):
-    
-    nome_arquivo = coleta_dir + os.sep + FILE_DESCRIPTION_PATH
+    # FILE_DESCRIPTION_PATH: Caminho do file_description dentro da pasta da coleta
+    nome_arquivo = coleta_dir + os.sep + os.getenv('FILE_DESCRIPTION_PATH')
     
     file_description = {}
 
@@ -35,6 +33,7 @@ def get_file_description(coleta_dir):
     
     return file_description
 
+# Consolida infromações dentro de um único json
 def join_file_description(coleta_dir, cod_cidade, file_content_group):
     instances = get_config_files(coleta_dir) #OK
     file_description = get_file_description(coleta_dir) #OK
@@ -66,20 +65,22 @@ def join_file_description(coleta_dir, cod_cidade, file_content_group):
     return json_arquivos
 
 # Acessa o HIVE para obter informação da cidade
-def get_cod_cidade(nome_cidade, user, password):
+def get_cod_cidade(nome_cidade):
     
     #Create Hive connection 
     conn = hive.Connection(host=os.getenv('HIVE_HOST'), 
         port=10500, 
-        username=user, 
-        password=password, 
+        username=os.getenv('PIN_USER'), 
+        password=os.getenv('PIN_PASSWORD'), 
         auth="LDAP",
         database="edw_dev")
 
     consulta = """
         SELECT cod_ibge 
         FROM dim_ibge_municipio
-        WHERE sigla_uf = 'MG' AND nome_cidade = '""" + nome_cidade.upper() + """'
+        WHERE sigla_uf = 'MG' AND nome_cidade = trim(UPPER(translate('""" + nome_cidade + """',
+            "áàâãäåaaaÁÂÃÄÅAAAÀéèêëeeeeeEEEÉEÊEÈìíîïìiiiÌÍÎÏÌIIIóôõöoooòÒÓÔÕÖOOOùúûüuuuuÙÚÛÜUUUUçÇñÑýÝ",
+            "aaaaaaaaaAAAAAAAAAeeeeeeeeeEEEEEEEEiiiiiiiiIIIIIIIIooooooooOOOOOOOOuuuuuuuuUUUUUUUUcCnNyY")))
     """
 
     cursor = conn.cursor()
@@ -117,38 +118,28 @@ def main(argv):
             file_content_group = arg
         elif opt in ("-o", "--outdir"):
             out_dir = arg
-    
-    
-    USER = os.getenv('PIN_USER')
-    PASSWORD = os.getenv('PIN_PASSWORD')
 
     #Consulta o HIVE para obter informação da cidade
-    cod_ibge_cidade = get_cod_cidade(nome_cidade, USER, PASSWORD)
+    cod_ibge_cidade = get_cod_cidade(nome_cidade.replace("_", " "))
+    
     # Executa o parser
-    pin = join_file_description(diretorio_coleta, cod_ibge_cidade, file_content_group)
+    pin = join_file_description(diretorio_coleta, cod_ibge_cidade, file_content_group.replace("_", " "))
 
-    file_name = "pin_" + nome_cidade.lower() + "_" + file_content_group + ".jsonl"
+    file_name = "pin_" + nome_cidade.lower() + "_" + file_content_group.lower() + ".jsonl"
     with open(os.path.join(out_dir, file_name), "w") as out_file:
         for key in pin:
             out_file.write(json.dumps(pin[key]) + "\n")
 
-def testando():
-    USER = os.getenv('PIN_USER')
-    PASSWORD = os.getenv('PIN_PASSWORD')
+    # Enviando eventos para o kafka
+    producer = KafkaProducer(bootstrap_servers=os.environ.get('PIN_KAFKA_BROKER'))
     
-    diretorio_coleta = "teste/"
-    nome_cidade = "Uberaba"
-    file_content_group = "" #licitacao, processo judicial, diario oficial, etc
-
-    #Consulta o HIVE para obter informação da cidade
-    cod_ibge_cidade = get_cod_cidade(nome_cidade, USER, PASSWORD)
-    # Executa o parser
-    pin = join_file_description(diretorio_coleta, cod_ibge_cidade, file_content_group)
-
-    print(pin['ae1f06d6-2aff-4c90-90b5-16965e73dd74.pdf.pdf'])
+    try:
+        for p in pin:
+            val = json.dumps(pin[key]).encode(encoding='utf8')
+            producer.send(topic=os.environ.get('PIN_KAFKA_TOPIC'), value=val)
+        producer.close()
+    except Exception as ex:
+        print(ex)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-    
-    
-    
