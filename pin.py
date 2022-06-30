@@ -1,5 +1,6 @@
 import os, sys, json, getopt
 from glob import glob
+from pyhive import hive
 
 # Diretorio onde estão as instâncias
 CONFIG_DIR = "config/" 
@@ -63,36 +64,90 @@ def join_file_description(coleta_dir, cod_cidade, file_content_group):
 
     return json_arquivos
 
+# Acessa o HIVE para obter informação da cidade
+def get_cod_cidade(nome_cidade, user, password):
+    
+    #Create Hive connection 
+    conn = hive.Connection(host="127.0.0.1", 
+        port=10500, 
+        username=user, 
+        password=password, 
+        auth="LDAP",
+        database="edw_dev")
+
+    consulta = """
+        SELECT cod_ibge 
+        FROM dim_ibge_municipio
+        WHERE sigla_uf = 'MG' AND nome_cidade = '""" + nome_cidade.upper() + """'
+    """
+
+    cursor = conn.cursor()
+    cursor.execute(consulta)
+    cod_ibge_cidade = cursor.fetchone()
+
+    if cod_ibge_cidade:
+        return cod_ibge_cidade[0]
+    else:
+        return ""
+
+    
 def main(argv):
     try:
-        opts, args = getopt.getopt(argv,"hd:c:g:", ['help', 'diretorio=',
-                                    'cidade=','group='])
+        opts, args = getopt.getopt(argv,"hd:c:g:o:", ['help', 'diretorio=',
+                                    'cidade=','group=','outdir='])
     except getopt.GetoptError:
-        print ('pin.py -d <diretorio_coleta> -c <cidade> -g <grupo>')
+        print ('pin.py -d <diretorio_coleta> -c <cidade> -g <grupo> -o <out_dir>')
         sys.exit(2)
 
-    coleta_dir = ''
-    cod_cidade = ''
-    grupo = ''
+    diretorio_coleta = ''
+    nome_cidade = ''
+    file_content_group = ''
+    out_dir = ''
 
     for opt, arg in opts:
         if opt == '-h':
-            print ('pin.py -d <diretorio_coleta> -c <cidade> -g <grupo>')
+            print ('pin.py -d <diretorio_coleta> -c <cidade> -g <grupo> -o <outdir>')
             sys.exit()
         elif opt in ("-d", "--diretorio"):
-            protein_file = arg
+            diretorio_coleta = arg
         elif opt in ("-c", "--cidade"):
-            out_dir = arg
+            nome_cidade = arg
         elif opt in ("-g", "--grupo"):
-            naccess_dir = arg
+            file_content_group = arg
+        elif opt in ("-o", "--outdir"):
+            out_dir = arg
+    
+    
+    USER = os.getenv('PIN_USER')
+    PASSWORD = os.getenv('PIN_PASSWORD')
 
-if __name__ == "__main__":
-    #main(sys.argv[1:])
+    #Consulta o HIVE para obter informação da cidade
+    cod_ibge_cidade = get_cod_cidade(nome_cidade, USER, PASSWORD)
+    # Executa o parser
+    pin = join_file_description(diretorio_coleta, cod_ibge_cidade, file_content_group)
 
+    file_name = "pin_" + nome_cidade.lower() + "_" + file_content_group + ".jsonl"
+    with open(os.path.join(out_dir, file_name), "w") as out_file:
+        for key in pin:
+            out_file.write(json.dumps(pin[key]) + "\n")
+
+def testando():
+    USER = os.getenv('PIN_USER')
+    PASSWORD = os.getenv('PIN_PASSWORD')
+    
     diretorio_coleta = "teste/"
-    cod_ibge_cidade = ""
+    nome_cidade = "Uberaba"
     file_content_group = "" #licitacao, processo judicial, diario oficial, etc
 
+    #Consulta o HIVE para obter informação da cidade
+    cod_ibge_cidade = get_cod_cidade(nome_cidade, USER, PASSWORD)
+    # Executa o parser
     pin = join_file_description(diretorio_coleta, cod_ibge_cidade, file_content_group)
 
     print(pin['ae1f06d6-2aff-4c90-90b5-16965e73dd74.pdf.pdf'])
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
+    
+    
+    
