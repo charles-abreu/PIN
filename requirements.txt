@@ -1,8 +1,9 @@
 future==0.18.2
 greenlet==1.1.2
+importlib-metadata==4.8.3
 kafka-python==2.0.2
-numpy==1.23.0
-pandas==1.4.3
+numpy==1.19.5
+pandas==1.1.5
 pure-sasl==0.6.2
 PyHive==0.6.5
 python-dateutil==2.8.2
@@ -12,3 +13,5 @@ six==1.16.0
 SQLAlchemy==1.4.39
 thrift==0.16.0
 thrift-sasl==0.4.3
+typing_extensions==4.1.1
+zipp==3.6.0

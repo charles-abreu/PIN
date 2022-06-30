@@ -2,3 +2,4 @@ venv/
 teste/
 teste_hive.py
 teste_kafka.py
+results/

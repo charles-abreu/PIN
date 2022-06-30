@@ -1,6 +1,7 @@
 import os, sys, json, getopt
 from glob import glob
 from pyhive import hive
+import config
 
 # Diretorio onde estão as instâncias
 CONFIG_DIR = "config/" 
@@ -68,7 +69,7 @@ def join_file_description(coleta_dir, cod_cidade, file_content_group):
 def get_cod_cidade(nome_cidade, user, password):
     
     #Create Hive connection 
-    conn = hive.Connection(host="127.0.0.1", 
+    conn = hive.Connection(host=os.getenv('HIVE_HOST'), 
         port=10500, 
         username=user, 
         password=password, 
